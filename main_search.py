@@ -145,6 +145,38 @@ def check_new_graph_against_family(new_graph, family, memo):
 # Part 2: Search Strategy and Main Loop
 # ============================================================================
 
+def find_all_p3_subgraphs(base_graph):
+    """
+    Finds all unique path of length 3 subgraphs within the base graph.
+
+    Returns:
+        list: A list of networkx.Graph objects, each representing a unique P₃.
+    """
+    p3_edge_sets = set()
+    nodes = list(base_graph.nodes())
+    for u, v in base_graph.edges():
+        u_neighbors = set(base_graph.neighbors(u)) - {v}
+        v_neighbors = set(base_graph.neighbors(v)) - {u}
+        for x in u_neighbors:
+            for y in v_neighbors:
+                if x != y:
+                    # Found path x-u-v-y. Create a canonical representation of its edges.
+                    edge1 = tuple(sorted((x, u)))
+                    edge2 = tuple(sorted((u, v)))
+                    edge3 = tuple(sorted((v, y)))
+                    p3_edges = frozenset(sorted([edge1, edge2, edge3]))
+                    p3_edge_sets.add(p3_edges)
+
+    p3_graphs = []
+    for edge_set in p3_edge_sets:
+        g = nx.Graph()
+        g.add_nodes_from(nodes)
+        g.add_edges_from(list(edge_set))
+        p3_graphs.append(g)
+        
+    return p3_graphs
+
+
 def prune_family(family, memo):
     """
     Takes a family of graphs and removes members until it is P₃-intersecting.
@@ -198,7 +230,8 @@ def prune_family(family, memo):
 
 def search_for_counterexample(base_graph, name):
     """
-    Main search algorithm using a prune-then-augment strategy.
+    Main search algorithm using a hybrid "seed-and-augment" and "prune-and-augment"
+    strategy to ensure both baseline and complex families are found.
     
     Args:
         base_graph: The base networkx.Graph to analyze
@@ -231,40 +264,49 @@ def search_for_counterexample(base_graph, name):
     F_best = []
     best_density = 0.0
 
-    # Test different high-density kernels
-    for k in range(eG, 2, -1):
-        print(f"\n--- Testing Kernel: All subgraphs with >= {k} edges ---")
+    # --- STRATEGY 1: Seed and Augment (Guarantees baseline) ---
+    print("\n--- Strategy 1: Seed and Augment ---")
+    all_p3s = find_all_p3_subgraphs(base_graph)
+    print(f"Found {len(all_p3s)} unique P₃ paths to test as seeds.")
+
+    for i, p3_seed in enumerate(all_p3s):
+        p3_edges = set(frozenset(e) for e in p3_seed.edges())
+        F_trivial = [g for g in all_subgraphs if p3_edges.issubset(set(frozenset(e) for e in g.edges()))]
         
-        # 1. Create the kernel
-        F_kernel = [g for g in all_subgraphs if g.number_of_edges() >= k]
-        if not F_kernel:
-            continue
-        print(f"Initial kernel size: {len(F_kernel)}")
-
-        # 2. Prune the kernel to make it a valid P₃-intersecting family
-        F_valid_kernel = prune_family(F_kernel, memo)
-        print(f"Size after pruning: {len(F_valid_kernel)}")
-
-        # 3. Greedily augment the valid kernel
-        F_augmented = F_valid_kernel.copy()
-        candidates = [g for g in all_subgraphs if g not in F_augmented]
-        # Sort candidates to test larger graphs first
+        candidates = [g for g in all_subgraphs if g not in F_trivial]
         candidates.sort(key=lambda g: g.number_of_edges(), reverse=True)
         
-        added_count = 0
+        for g_new in candidates:
+            if check_new_graph_against_family(g_new, F_trivial, memo):
+                F_trivial.append(g_new)
+        
+        if len(F_trivial) > len(F_best):
+            F_best = F_trivial
+            best_density = len(F_best) / (2**eG)
+            print(f"Seed {i+1} gave new best family! Size: {len(F_best)}, Density: {best_density:.8f}")
+
+    # --- STRATEGY 2: Prune and Augment (Finds complex families) ---
+    print("\n--- Strategy 2: Prune and Augment ---")
+    for k in range(eG, 2, -1):
+        print(f"\nTesting Kernel: All subgraphs with >= {k} edges")
+        
+        F_kernel = [g for g in all_subgraphs if g.number_of_edges() >= k]
+        if not F_kernel: continue
+        
+        F_valid_kernel = prune_family(F_kernel, memo)
+        
+        F_augmented = F_valid_kernel.copy()
+        candidates = [g for g in all_subgraphs if g not in F_augmented]
+        candidates.sort(key=lambda g: g.number_of_edges(), reverse=True)
+        
         for g_new in candidates:
             if check_new_graph_against_family(g_new, F_augmented, memo):
                 F_augmented.append(g_new)
-                added_count += 1
         
-        if added_count > 0:
-            print(f"Greedy augmentation added {added_count} graphs.")
-        
-        # 4. Update best result found so far
         if len(F_augmented) > len(F_best):
             F_best = F_augmented
             best_density = len(F_best) / (2**eG)
-            print(f"Found new best family! Size: {len(F_best)}, Density: {best_density:.8f}")
+            print(f"Kernel k={k} gave new best family! Size: {len(F_best)}, Density: {best_density:.8f}")
 
     elapsed = time.time() - start_time
     print(f"\nSearch completed for {name} in {elapsed:.2f} seconds")
