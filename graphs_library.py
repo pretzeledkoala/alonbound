@@ -52,6 +52,14 @@ def define_graphs_to_test():
     # K_2,4
     G_k24 = nx.complete_bipartite_graph(2, 4)
     graphs['K_2,4'] = G_k24
+
+    # K_2,4
+    G_k25 = nx.complete_bipartite_graph(2, 5)
+    graphs['K_2,5'] = G_k25
+
+    # K_3,4
+    G_k34 = nx.complete_bipartite_graph(3, 4)
+    graphs['K_3,4'] = G_k34
     
     # K_2,2,2 (Octahedron)
     G_octa = nx.complete_multipartite_graph(2, 2, 2)
